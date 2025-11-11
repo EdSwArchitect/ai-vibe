@@ -1,0 +1,117 @@
+[
+  {
+    "place_id": 319656755,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 9373493983,
+    "lat": "40.7850204",
+    "lon": "-73.9728756",
+    "display_name": "Citi Bike, West 84th Street, Manhattan Community Board 7, Manhattan, New York County, New York, 10024, United States",
+    "address": {
+      "amenity": "Citi Bike",
+      "road": "West 84th Street",
+      "neighbourhood": "Manhattan Community Board 7",
+      "suburb": "Manhattan",
+      "county": "New York County",
+      "city": "New York",
+      "state": "New York",
+      "ISO3166-2-lvl4": "US-NY",
+      "postcode": "10024",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "boundingbox": ["40.7849704", "40.7850704", "-73.9729256", "-73.9728256"]
+  },
+  {
+    "place_id": 319647570,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 2724042423,
+    "lat": "40.7781285",
+    "lon": "-73.9459159",
+    "display_name": "429, East 89th Street, Manhattan Community Board 8, Manhattan, New York County, New York, 10128, United States",
+    "address": {
+      "house_number": "429",
+      "road": "East 89th Street",
+      "neighbourhood": "Manhattan Community Board 8",
+      "suburb": "Manhattan",
+      "county": "New York County",
+      "city": "New York",
+      "state": "New York",
+      "ISO3166-2-lvl4": "US-NY",
+      "postcode": "10128",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "boundingbox": ["40.7780785", "40.7781785", "-73.9459659", "-73.9458659"]
+  },
+  {
+    "place_id": 319637287,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 265459554,
+    "lat": "40.755605450000004",
+    "lon": "-73.96757547813765",
+    "display_name": "The Halcyon, 305, East 51st Street, Beekman, Manhattan Community Board 6, Manhattan, New York County, New York, 10022, United States",
+    "address": {
+      "building": "The Halcyon",
+      "house_number": "305",
+      "road": "East 51st Street",
+      "neighbourhood": "Beekman",
+      "suburb": "Manhattan",
+      "county": "New York County",
+      "city": "New York",
+      "state": "New York",
+      "ISO3166-2-lvl4": "US-NY",
+      "postcode": "10022",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "boundingbox": ["40.7553488", "40.7558112", "-73.9678462", "-73.9673182"]
+  },
+  {
+    "place_id": 319603412,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 9478443286,
+    "lat": "40.7319287",
+    "lon": "-73.9613155",
+    "display_name": "Waiting, India Street, Brooklyn, Kings County, New York, 11222, United States",
+    "address": {
+      "tourism": "Waiting",
+      "road": "India Street",
+      "suburb": "Brooklyn",
+      "city": "New York",
+      "state": "New York",
+      "ISO3166-2-lvl4": "US-NY",
+      "postcode": "11222",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "boundingbox": ["40.7318787", "40.7319787", "-73.9613655", "-73.9612655"]
+  },
+  {
+    "place_id": 319636288,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 353400989,
+    "lat": "40.753305600000004",
+    "lon": "-73.97052447180943",
+    "display_name": "Citi bike - East 47th Street & 2nd Avenue, East 47th Street, Beekman, Manhattan Community Board 6, Manhattan, New York County, New York, 10017, United States",
+    "address": {
+      "amenity": "Citi bike - East 47th Street & 2nd Avenue",
+      "road": "East 47th Street",
+      "neighbourhood": "Beekman",
+      "suburb": "Manhattan",
+      "county": "New York County",
+      "city": "New York",
+      "state": "New York",
+      "ISO3166-2-lvl4": "US-NY",
+      "postcode": "10017",
+      "country": "United States",
+      "country_code": "us"
+    },
+    "boundingbox": ["40.7532062", "40.753405", "-73.9707468", "-73.9703021"]
+  }
+]
+

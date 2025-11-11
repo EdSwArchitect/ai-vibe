@@ -1,0 +1,7 @@
+"ride_id","rideable_type","started_at","ended_at","start_station_name","start_station_id","end_station_name","end_station_id","start_lat","start_lng","end_lat","end_lng","member_casual"
+"TEST001","classic_bike","2023-06-11 06:54:21","2023-06-11 07:12:28","W 84 St & Columbus Ave","7382.04","Amsterdam Ave & W 125 St","7800.03",40.78499979,-73.97283406,40.813358,-73.956461,"member"
+"TEST002","electric_bike","2023-06-19 15:23:11","2023-06-19 16:00:05","E 89 St & York Ave","7204.08","Mott St & Prince St","5561.04",40.777957678,-73.945928335,40.72317958,-73.99480012,"casual"
+"TEST003","classic_bike","2023-06-06 16:07:05","2023-06-06 16:15:14","E 51 St & 2 Ave","6575.03","E 25 St & 1 Ave","6004.07",40.755357265,-73.967488885,40.7381765,-73.97738662,"member"
+"TEST004","electric_bike","2023-06-26 19:52:23","2023-06-26 19:55:47","India St Pier","5794.05","Franklin St & Dupont St","5944.01",40.731734785883454,-73.9612390102593,40.73564,-73.95866,"casual"
+"TEST005","classic_bike","2023-06-05 08:57:57","2023-06-05 09:13:36","E 47 St & 2 Ave","6498.10","5 Ave & E 29 St","6248.06",40.75323098,-73.97032517,40.7451677,-73.98683077,"member"
+
