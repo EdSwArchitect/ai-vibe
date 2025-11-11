@@ -11,9 +11,9 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.opencsv.exceptions.CsvValidationException;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.List;
 import java.util.Properties;
 
 public class CsvToKafkaProducer {
@@ -32,14 +32,14 @@ public class CsvToKafkaProducer {
         }
     }
 
-    public void produce(String csvFilePath) throws IOException {
+    public void produce(String csvFilePath) throws IOException, CsvValidationException {
         logger.info("Reading CSV file: {}", csvFilePath);
         
         // Configure Kafka Producer
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        props.put(ProducerConfig.KEY_SERDE_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERDE_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.RETRIES_CONFIG, 3);
 
@@ -52,12 +52,17 @@ public class CsvToKafkaProducer {
              CSVReader csvReader = new CSVReader(fileReader)) {
 
             // Skip header
-            csvReader.readNext();
+            try {
+                csvReader.readNext();
+            } catch (CsvValidationException e) {
+                logger.warn("Error reading header", e);
+            }
 
             String[] line;
             int count = 0;
             
-            while ((line = csvReader.readNext()) != null) {
+            try {
+                while ((line = csvReader.readNext()) != null) {
                 if (line.length < 13) {
                     continue;
                 }
@@ -83,6 +88,9 @@ public class CsvToKafkaProducer {
                 } catch (Exception e) {
                     logger.warn("Error parsing line: {}", String.join(",", line), e);
                 }
+                }
+            } catch (CsvValidationException e) {
+                logger.error("Error reading CSV", e);
             }
             
             producer.flush();

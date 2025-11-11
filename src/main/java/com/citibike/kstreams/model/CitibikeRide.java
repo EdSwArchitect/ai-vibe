@@ -2,8 +2,6 @@ package com.citibike.kstreams.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.LocalDateTime;
-
 public class CitibikeRide {
     @JsonProperty("ride_id")
     private String rideId;

@@ -16,8 +16,8 @@ A Java 21 Kafka Streams application that processes Citibike ride data and enrich
   - To check your Java version: `java -version`
   - To install Java 21 on macOS: `brew install openjdk@21` or download from [Oracle](https://www.oracle.com/java/technologies/downloads/#java21)
 - Maven 3.6+
-- Apache Kafka (for running the application)
-- Zookeeper (required by Kafka)
+- Docker and Docker Compose (for running Kafka)
+- Apache Kafka (runs via Docker Compose using KRaft mode - no Zookeeper needed)
 
 ## Project Structure
 
@@ -54,14 +54,95 @@ mvn clean package
 
 This will create a JAR file in the `target/` directory.
 
+## Application Versions
+
+The project includes two versions of the Kafka Streams application:
+
+### Version 1: In-Memory Lookup (`CitibikeKStreamsApp`)
+- Loads locations from JSON file into memory
+- Uses in-memory cache for location lookups
+- Simpler setup, faster for small datasets
+- **Use when**: You have a small location dataset and want quick setup
+
+### Version 2: KTable Lookup (`CitibikeKStreamsAppWithKTable`)
+- Loads locations from a Kafka topic into a GlobalKTable
+- Uses Kafka Streams state store for location lookups
+- More scalable, follows Kafka-native patterns
+- **Use when**: You want to update locations dynamically via Kafka topics, or have large datasets
+
+## Topology Diagrams
+
+### Version 1: In-Memory Lookup Topology
+
+```mermaid
+graph LR
+    A[CSV File<br/>citibike.csv] -->|CsvToKafkaProducer| B[Kafka Topic<br/>citibike-rides]
+    C[JSON File<br/>locations.json] -->|Load at startup| D[LocationLookupService<br/>In-Memory Cache]
+    B -->|KStream| E[CitibikeKStreamsApp<br/>mapValues + lookup]
+    D -->|Location Lookup| E
+    E -->|Enriched Data| F[Kafka Topic<br/>citibike-rides-with-locations]
+    F -->|Consumer| G[Output]
+    
+    style A fill:#e1f5ff
+    style C fill:#e1f5ff
+    style B fill:#fff4e1
+    style D fill:#ffe1f5
+    style E fill:#e1ffe1
+    style F fill:#fff4e1
+    style G fill:#e1f5ff
+```
+
+**Data Flow:**
+1. `CsvToKafkaProducer` reads CSV file and publishes rides to `citibike-rides` topic
+2. `CitibikeKStreamsApp` loads locations from JSON file into memory at startup
+3. For each ride in the stream, the app looks up start/end locations from in-memory cache
+4. Enriched rides are published to `citibike-rides-with-locations` topic
+
+### Version 2: KTable Lookup Topology
+
+```mermaid
+graph TB
+    A[CSV File<br/>citibike.csv] -->|CsvToKafkaProducer| B[Kafka Topic<br/>citibike-rides]
+    C[JSON File<br/>locations.json] -->|LocationToKafkaProducer| D[Kafka Topic<br/>locations]
+    D -->|GlobalKTable| E[State Store<br/>locations-store]
+    B -->|KStream| F[LocationLookupTransformer]
+    E -->|Read from Store| F
+    F -->|Enriched Data| G[Kafka Topic<br/>citibike-rides-with-locations]
+    G -->|Consumer| H[Output]
+    
+    style A fill:#e1f5ff
+    style C fill:#e1f5ff
+    style B fill:#fff4e1
+    style D fill:#fff4e1
+    style E fill:#ffe1f5
+    style F fill:#e1ffe1
+    style G fill:#fff4e1
+    style H fill:#e1f5ff
+```
+
+**Data Flow:**
+1. `LocationToKafkaProducer` reads JSON file and publishes locations to `locations` topic
+2. `GlobalKTable` consumes from `locations` topic and materializes into `locations-store` state store
+3. `CsvToKafkaProducer` reads CSV file and publishes rides to `citibike-rides` topic
+4. `CitibikeKStreamsAppWithKTable` processes rides stream using `LocationLookupTransformer`
+5. Transformer accesses `locations-store` to find closest locations for each ride
+6. Enriched rides are published to `citibike-rides-with-locations` topic
+
+**Key Differences:**
+- Version 1: Locations loaded once at startup from file
+- Version 2: Locations loaded from Kafka topic, can be updated dynamically
+- Version 2: Uses Kafka Streams state store (fault-tolerant, scalable)
+
 ## Running the Application
+
+### Version 1: In-Memory Lookup
 
 ### 1. Start Kafka
 
-Start Kafka and Zookeeper using Docker Compose:
+Start Kafka using Docker Compose (KRaft mode - no Zookeeper needed):
 
 ```bash
-# Start Kafka, Zookeeper, and Kafka UI
+# Start Kafka and Kafka UI
 docker-compose up -d
 
 # Check that services are running
@@ -72,11 +153,13 @@ docker-compose logs -f kafka
 
 # Stop services when done
 docker-compose down
+
+# To completely reset (clears all data)
+docker-compose down -v
 ```
 
 The Docker Compose setup includes:
-- **Zookeeper** on port 2181
-- **Kafka** on port 9092
+- **Kafka** on port 9092 (using KRaft mode - no Zookeeper required)
 - **Kafka UI** on port 8080 (web interface for managing topics and viewing messages)
 
 You can access Kafka UI at http://localhost:8080 to view topics, messages, and manage your Kafka cluster.
@@ -123,6 +206,42 @@ kafka-console-consumer.sh --topic citibike-rides-with-locations --from-beginning
 ```
 
 You can also view messages in Kafka UI at http://localhost:8080 by navigating to the `citibike-rides-with-locations` topic.
+
+### Version 2: KTable Lookup
+
+### 1. Start Kafka
+
+Same as Version 1 - start Kafka using Docker Compose.
+
+### 2. Load Locations to Kafka Topic
+
+First, publish locations to a Kafka topic:
+
+```bash
+java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.LocationToKafkaProducer locations.json
+```
+
+This will create the `locations` topic and populate it with location data.
+
+### 3. Produce CSV Data to Kafka
+
+Same as Version 1:
+
+```bash
+java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CsvToKafkaProducer citibike.csv
+```
+
+### 4. Run the Kafka Streams Application with KTable
+
+```bash
+java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CitibikeKStreamsAppWithKTable
+```
+
+Note: This version doesn't need the locations.json file path as it reads from the Kafka topic.
+
+### 5. Consume Output
+
+Same as Version 1 - consume from the output topic.
 
 ## Data Format
 
