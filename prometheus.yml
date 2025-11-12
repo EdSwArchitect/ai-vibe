@@ -5,7 +5,8 @@ global:
 scrape_configs:
   - job_name: 'citibike-app'
     static_configs:
-      - targets: ['host.docker.internal:8081']
+#      - targets: ['host.docker.internal:8081']
+      - targets: ['192.168.50.183:8081']
         labels:
           application: 'citibike-kstreams'
           version: '1.0.0'
