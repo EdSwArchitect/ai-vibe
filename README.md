@@ -9,6 +9,8 @@ A Java 21 Kafka Streams application that processes Citibike ride data and enrich
 - Enriches ride data with geolocation information using a JSON lookup table
 - Outputs enriched data to Kafka topics
 - Uses Kafka Streams for real-time stream processing
+- Exposes Prometheus metrics for monitoring
+- Pre-configured Grafana dashboard for visualization
 
 ## Prerequisites
 
@@ -16,7 +18,7 @@ A Java 21 Kafka Streams application that processes Citibike ride data and enrich
   - To check your Java version: `java -version`
   - To install Java 21 on macOS: `brew install openjdk@21` or download from [Oracle](https://www.oracle.com/java/technologies/downloads/#java21)
 - Maven 3.6+
-- Docker and Docker Compose (for running Kafka)
+- Docker and Docker Compose (for running Kafka, Prometheus, and Grafana)
 - Apache Kafka (runs via Docker Compose using KRaft mode - no Zookeeper needed)
 
 ## Project Structure
@@ -26,18 +28,35 @@ A Java 21 Kafka Streams application that processes Citibike ride data and enrich
 ├── pom.xml                          # Maven build configuration
 ├── citibike.csv                     # Input CSV file with Citibike ride data
 ├── locations.json                   # Geolocation lookup table (JSON)
+├── docker-compose.yml               # Docker Compose configuration for Kafka, Prometheus, Grafana
+├── prometheus.yml                   # Prometheus configuration
+├── grafana/                         # Grafana dashboard and provisioning
+│   ├── dashboards/
+│   │   └── citibike-metrics.json    # Pre-configured Grafana dashboard
+│   └── provisioning/
+│       ├── datasources/
+│       │   └── prometheus.yml       # Prometheus datasource config
+│       └── dashboards/
+│           └── dashboard.yml       # Dashboard provisioning config
 ├── src/
 │   ├── main/
 │   │   ├── java/
 │   │   │   └── com/citibike/kstreams/
-│   │   │       ├── CitibikeKStreamsApp.java    # Main Kafka Streams application
-│   │   │       ├── CsvToKafkaProducer.java     # CSV to Kafka producer
-│   │   │       ├── model/                      # Data models
+│   │   │       ├── CitibikeKStreamsApp.java           # Main Kafka Streams app (in-memory lookup)
+│   │   │       ├── CitibikeKStreamsAppWithKTable.java # KTable-based Kafka Streams app
+│   │   │       ├── CsvToKafkaProducer.java            # CSV to Kafka producer
+│   │   │       ├── LocationToKafkaProducer.java       # Locations JSON to Kafka producer
+│   │   │       ├── metrics/                            # Metrics and monitoring
+│   │   │       │   ├── MetricsService.java
+│   │   │       │   └── MetricsServer.java
+│   │   │       ├── model/                              # Data models
 │   │   │       │   ├── CitibikeRide.java
 │   │   │       │   ├── Location.java
 │   │   │       │   └── RideWithLocation.java
-│   │   │       └── service/
-│   │   │           └── LocationLookupService.java
+│   │   │       ├── service/
+│   │   │       │   └── LocationLookupService.java
+│   │   │       └── transformer/
+│   │   │           └── LocationLookupTransformer.java
 │   │   └── resources/
 │   │       └── logback.xml
 │   └── test/
@@ -52,7 +71,7 @@ A Java 21 Kafka Streams application that processes Citibike ride data and enrich
 mvn clean package
 ```
 
-This will create a JAR file in the `target/` directory.
+This will create a JAR file in the `target/` directory: `citibike-kstreams-1.0.0.jar` (includes all dependencies via Maven Shade plugin).
 
 ## Application Versions
 
@@ -135,14 +154,12 @@ graph TB
 
 ## Running the Application
 
-### Version 1: In-Memory Lookup
+### Step 1: Start Infrastructure Services
 
-### 1. Start Kafka
-
-Start Kafka using Docker Compose (KRaft mode - no Zookeeper needed):
+Start Kafka, Prometheus, and Grafana using Docker Compose:
 
 ```bash
-# Start Kafka and Kafka UI
+# Start all services (Kafka, Kafka UI, Prometheus, Grafana)
 docker-compose up -d
 
 # Check that services are running
@@ -161,10 +178,15 @@ docker-compose down -v
 The Docker Compose setup includes:
 - **Kafka** on port 9092 (using KRaft mode - no Zookeeper required)
 - **Kafka UI** on port 8080 (web interface for managing topics and viewing messages)
+- **Prometheus** on port 9090 (metrics collection)
+- **Grafana** on port 3000 (metrics visualization)
 
-You can access Kafka UI at http://localhost:8080 to view topics, messages, and manage your Kafka cluster.
+You can access:
+- Kafka UI at http://localhost:8080
+- Prometheus at http://localhost:9090
+- Grafana at http://localhost:3000 (default credentials: `admin` / `admin`)
 
-### 2. Create Kafka Topics
+### Step 2: Create Kafka Topics (Optional)
 
 Topics will be auto-created when you start producing messages, but you can also create them manually:
 
@@ -174,29 +196,52 @@ docker exec -it kafka kafka-topics.sh --create --topic citibike-rides --bootstra
 
 docker exec -it kafka kafka-topics.sh --create --topic citibike-rides-with-locations --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
 
+docker exec -it kafka kafka-topics.sh --create --topic locations --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+
 # Or use Kafka UI at http://localhost:8080 to create topics via the web interface
 ```
 
-Alternatively, if you have Kafka installed locally:
-```bash
-kafka-topics.sh --create --topic citibike-rides --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
-kafka-topics.sh --create --topic citibike-rides-with-locations --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
-```
+### Version 1: In-Memory Lookup
 
-### 3. Produce CSV Data to Kafka
+#### Step 3: Produce CSV Data to Kafka
+
+In a terminal, run:
 
 ```bash
 java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CsvToKafkaProducer citibike.csv
 ```
 
-### 4. Run the Kafka Streams Application
+This will:
+- Read the CSV file and parse ride data
+- Publish rides to the `citibike-rides` topic
+- Start a metrics server on port 8081
+- Track metrics for rides processed, parsed, and parse failures
+
+**Note:** The producer will finish when all CSV data is processed. The metrics server will continue running.
+
+#### Step 4: Run the Kafka Streams Application
+
+In a **separate terminal**, run:
 
 ```bash
 java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CitibikeKStreamsApp locations.json
 ```
 
-### 5. Consume Output
+This will:
+- Load locations from `locations.json` into memory
+- Start processing rides from the `citibike-rides` topic
+- Enrich rides with location data
+- Publish enriched rides to `citibike-rides-with-locations` topic
+- Start a metrics server on port 8081 (if not already running)
+- Track metrics for lookups, successful/failed lookups, and processing rates
 
+**Note:** The application runs continuously. Press `Ctrl+C` to stop.
+
+#### Step 5: View Output
+
+You can view the enriched output in several ways:
+
+**Option 1: Using Kafka Console Consumer**
 ```bash
 # Using Docker exec
 docker exec -it kafka kafka-console-consumer.sh --topic citibike-rides-with-locations --from-beginning --bootstrap-server localhost:9092
@@ -205,15 +250,20 @@ docker exec -it kafka kafka-console-consumer.sh --topic citibike-rides-with-loca
 kafka-console-consumer.sh --topic citibike-rides-with-locations --from-beginning --bootstrap-server localhost:9092
 ```
 
-You can also view messages in Kafka UI at http://localhost:8080 by navigating to the `citibike-rides-with-locations` topic.
+**Option 2: Using Kafka UI**
+- Navigate to http://localhost:8080
+- Select the `citibike-rides-with-locations` topic
+- View messages in the web interface
+
+**Option 3: View Metrics in Grafana**
+- Navigate to http://localhost:3000
+- Login with `admin` / `admin`
+- The "Citibike Kafka Streams Metrics" dashboard will be automatically loaded
+- View real-time metrics including lookup rates, success rates, and processing rates
 
 ### Version 2: KTable Lookup
 
-### 1. Start Kafka
-
-Same as Version 1 - start Kafka using Docker Compose.
-
-### 2. Load Locations to Kafka Topic
+#### Step 3: Load Locations to Kafka Topic
 
 First, publish locations to a Kafka topic:
 
@@ -221,27 +271,45 @@ First, publish locations to a Kafka topic:
 java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.LocationToKafkaProducer locations.json
 ```
 
-This will create the `locations` topic and populate it with location data.
+This will:
+- Read locations from `locations.json`
+- Publish locations to the `locations` topic
+- Start a metrics server on port 8081
+- Track the number of locations loaded
 
-### 3. Produce CSV Data to Kafka
+**Note:** Wait for this to complete before proceeding to the next step.
 
-Same as Version 1:
+#### Step 4: Produce CSV Data to Kafka
+
+In a terminal, run:
 
 ```bash
 java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CsvToKafkaProducer citibike.csv
 ```
 
-### 4. Run the Kafka Streams Application with KTable
+This publishes rides to the `citibike-rides` topic.
+
+#### Step 5: Run the Kafka Streams Application with KTable
+
+In a **separate terminal**, run:
 
 ```bash
 java -cp target/citibike-kstreams-1.0.0.jar com.citibike.kstreams.CitibikeKStreamsAppWithKTable
 ```
 
-Note: This version doesn't need the locations.json file path as it reads from the Kafka topic.
+This will:
+- Load locations from the `locations` topic into a GlobalKTable
+- Start processing rides from the `citibike-rides` topic
+- Use the `LocationLookupTransformer` to enrich rides with location data
+- Publish enriched rides to `citibike-rides-with-locations` topic
+- Start a metrics server on port 8081
+- Track metrics for lookups, successful/failed lookups, and processing rates
 
-### 5. Consume Output
+**Note:** The application runs continuously. Press `Ctrl+C` to stop.
 
-Same as Version 1 - consume from the output topic.
+#### Step 6: View Output
+
+Same as Version 1 - use Kafka Console Consumer, Kafka UI, or Grafana to view the output.
 
 ## Data Format
 
@@ -267,10 +335,23 @@ Enriched ride data with:
 
 ## Testing
 
-Run tests with:
+Run all tests with:
 
 ```bash
 mvn test
+```
+
+Run specific test suites:
+
+```bash
+# Run metrics tests
+mvn test -Dtest="*Metrics*"
+
+# Run CSV parsing tests
+mvn test -Dtest="CsvToKafkaProducerTest"
+
+# Run location lookup tests
+mvn test -Dtest="LocationLookupServiceTest"
 ```
 
 ## Configuration
@@ -278,6 +359,7 @@ mvn test
 The application uses the following Kafka topics:
 - **Input**: `citibike-rides`
 - **Output**: `citibike-rides-with-locations`
+- **Locations** (Version 2 only): `locations`
 
 Kafka broker is configured to connect to `localhost:9092` by default. You can modify this in the code if needed.
 
@@ -299,13 +381,16 @@ The application exposes Prometheus metrics on port 8081 at `/metrics` endpoint. 
 - `citibike_location_lookups_total` - Total number of location lookups attempted
 - `citibike_location_lookups_successful_total` - Total number of successful location lookups
 - `citibike_location_lookups_failed_total` - Total number of failed location lookups
-- `citibike_location_lookup_duration_seconds` - Duration of location lookups (histogram)
+- `citibike_location_lookup_duration_seconds` - Duration of location lookups (histogram with percentiles)
 
 ### Accessing Metrics
 
 1. **Prometheus**: http://localhost:9090
    - Query metrics using PromQL
    - View targets to verify metrics collection
+   - Example queries:
+     - `rate(citibike_location_lookups_total[1m])` - Lookups per second
+     - `citibike_rides_processed_total` - Total rides processed
 
 2. **Grafana**: http://localhost:3000
    - Default credentials: `admin` / `admin`
@@ -315,23 +400,60 @@ The application exposes Prometheus metrics on port 8081 at `/metrics` endpoint. 
      - Lookup rates (per second)
      - Success vs failure rates
      - Parse failure rates
-     - Lookup duration percentiles
+     - Lookup duration percentiles (50th, 95th)
      - Processing rates
+
+3. **Direct Metrics Endpoint**: http://localhost:8081/metrics
+   - Raw Prometheus format metrics
+   - Available when any application component is running
 
 ### Starting Monitoring Stack
 
+The monitoring stack (Prometheus and Grafana) is started automatically with:
+
 ```bash
-# Start all services including Prometheus and Grafana
 docker-compose up -d
-
-# Verify services are running
-docker-compose ps
-
-# Access Grafana
-open http://localhost:3000
 ```
 
-The Grafana dashboard will automatically load when you access the web interface.
+The Grafana dashboard will automatically load when you access the web interface at http://localhost:3000.
+
+### Metrics Collection Flow
+
+1. Application components (producers, stream processors) collect metrics via `MetricsService`
+2. Metrics are exposed via HTTP server on port 8081 at `/metrics` endpoint
+3. Prometheus scrapes metrics from `http://host.docker.internal:8081/metrics` every 15 seconds
+4. Grafana queries Prometheus to display metrics in dashboards
+
+**Note:** Make sure your application is running before Prometheus can collect metrics. If Prometheus shows "down" status, verify that:
+- The application is running
+- The metrics server is accessible on port 8081
+- Prometheus can reach `host.docker.internal:8081` (works on macOS/Windows, may need IP on Linux)
+
+## Troubleshooting
+
+### Application won't start
+- Verify Java 21 is installed: `java -version`
+- Check that Kafka is running: `docker-compose ps`
+- Verify Kafka is accessible: `docker exec -it kafka kafka-broker-api-versions --bootstrap-server localhost:9092`
+
+### No metrics in Grafana
+- Verify the application is running and metrics server started
+- Check Prometheus targets: http://localhost:9090/targets
+- Verify metrics endpoint: `curl http://localhost:8081/metrics`
+- On Linux, you may need to update `prometheus.yml` to use host IP instead of `host.docker.internal`
+
+### Topics not created
+- Topics are auto-created by default (KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true')
+- You can manually create topics using Kafka UI or `kafka-topics.sh`
+
+### Port conflicts
+- Kafka: 9092, 9093
+- Kafka UI: 8080
+- Prometheus: 9090
+- Grafana: 3000
+- Metrics Server: 8081
+
+If any port is in use, modify `docker-compose.yml` or the application code.
 
 ## License
 
