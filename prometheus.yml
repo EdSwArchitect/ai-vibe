@@ -9,6 +9,7 @@ scrape_configs:
         labels:
           application: 'citibike-kstreams'
           version: '1.0.0'
-    # For macOS/Linux, use host.docker.internal
-    # For Linux, you may need to use the host IP or add extra_hosts in docker-compose
+    # Use host.docker.internal to reach the host machine from Docker
+    # On Linux, if host.docker.internal doesn't work, use the host's IP address
+    # or add extra_hosts in docker-compose.yml
 

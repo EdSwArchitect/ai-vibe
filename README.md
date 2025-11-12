@@ -431,16 +431,83 @@ The Grafana dashboard will automatically load when you access the web interface 
 
 ## Troubleshooting
 
+### Quick Verification
+
+Run the verification script to check all components:
+
+```bash
+./verify-metrics.sh
+```
+
+This will check:
+- Metrics endpoint accessibility
+- Prometheus target status
+- Prometheus query capability
+- Grafana datasource configuration
+
 ### Application won't start
 - Verify Java 21 is installed: `java -version`
 - Check that Kafka is running: `docker-compose ps`
 - Verify Kafka is accessible: `docker exec -it kafka kafka-broker-api-versions --bootstrap-server localhost:9092`
 
-### No metrics in Grafana
-- Verify the application is running and metrics server started
-- Check Prometheus targets: http://localhost:9090/targets
-- Verify metrics endpoint: `curl http://localhost:8081/metrics`
-- On Linux, you may need to update `prometheus.yml` to use host IP instead of `host.docker.internal`
+### No metrics in Grafana (but Prometheus has data)
+
+This is usually a connectivity issue between Prometheus and the metrics endpoint. Follow these steps:
+
+1. **Verify metrics endpoint is accessible from host:**
+   ```bash
+   curl http://localhost:8081/metrics
+   ```
+   You should see Prometheus-formatted metrics. If not, make sure your application is running.
+
+2. **Check Prometheus can reach the endpoint:**
+   - Open http://localhost:9090/targets
+   - Look for the `citibike-app` target
+   - Status should be "UP" (green)
+   - If it's "DOWN" (red), Prometheus can't reach the metrics endpoint
+
+3. **Fix Prometheus connectivity:**
+   - The `prometheus.yml` uses `host.docker.internal:8081` to reach the host machine
+   - This works on macOS and Windows Docker Desktop
+   - **On Linux**, you may need to:
+     - Find your host IP: `ip addr show docker0 | grep inet`
+     - Update `prometheus.yml` to use the IP instead: `targets: ['172.17.0.1:8081']`
+     - Or add to docker-compose.yml prometheus service:
+       ```yaml
+       extra_hosts:
+         - "host.docker.internal:host-gateway"
+       ```
+
+4. **Reload Prometheus configuration:**
+   ```bash
+   # Restart Prometheus to pick up config changes
+   docker-compose restart prometheus
+   
+   # Or send SIGHUP to reload config
+   docker kill -s SIGHUP prometheus
+   ```
+
+5. **Verify Prometheus is scraping:**
+   - Wait 15-30 seconds after starting the app
+   - Check Prometheus targets: http://localhost:9090/targets
+   - Query a metric in Prometheus: http://localhost:9090/graph?g0.expr=citibike_locations_count
+
+6. **Check Grafana datasource:**
+   - Open Grafana: http://localhost:3000
+   - Go to Configuration → Data Sources
+   - Verify Prometheus datasource is configured and shows "Success" when testing
+
+7. **Verify dashboard queries:**
+   - Open the dashboard in Grafana
+   - Click on a panel → Edit
+   - Check the query - it should match metric names from step 1
+   - Try the query directly in Prometheus to verify it returns data
+
+8. **Use the verification script:**
+   ```bash
+   ./verify-metrics.sh
+   ```
+   This script checks all components and provides troubleshooting tips.
 
 ### Topics not created
 - Topics are auto-created by default (KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true')
