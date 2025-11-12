@@ -1,5 +1,7 @@
 package com.citibike.kstreams;
 
+import com.citibike.kstreams.metrics.MetricsService;
+import com.citibike.kstreams.metrics.MetricsServer;
 import com.citibike.kstreams.model.Location;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -38,12 +40,28 @@ public class LocationToKafkaProducer {
     public void produce(String locationsFilePath) throws IOException {
         logger.info("Loading locations from: {}", locationsFilePath);
         
-        // Load locations from JSON
-        ObjectMapper objectMapper = new ObjectMapper();
-        File file = new File(locationsFilePath);
-        Location[] locations = objectMapper.readValue(file, Location[].class);
+        // Initialize metrics
+        MetricsService metricsService = MetricsService.getInstance();
+        MetricsServer metricsServer = new MetricsServer(metricsService);
+        metricsServer.start();
         
-        logger.info("Loaded {} locations", locations.length);
+        // Load locations from JSON with lenient parsing
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false);
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true);
+        
+        File file = new File(locationsFilePath);
+        Location[] locations;
+        
+        try {
+            locations = objectMapper.readValue(file, Location[].class);
+            logger.info("Loaded {} locations", locations.length);
+            metricsService.setLocationsCount(locations.length);
+        } catch (Exception e) {
+            logger.error("Error parsing locations JSON file: {}", locationsFilePath, e);
+            throw new IOException("Failed to parse locations JSON file", e);
+        }
         
         // Configure Kafka Producer
         Properties props = new Properties();
@@ -59,14 +77,28 @@ public class LocationToKafkaProducer {
                 new StringSerializer(), new StringSerializer())) {
 
             int count = 0;
+            int skipped = 0;
             for (Location location : locations) {
                 try {
+                    // Skip locations without valid coordinates
+                    Double lat = location.getLatAsDouble();
+                    Double lon = location.getLonAsDouble();
+                    
+                    if (lat == null || lon == null) {
+                        skipped++;
+                        logger.debug("Skipping location {} - missing coordinates", location.getPlaceId());
+                        continue;
+                    }
+                    
                     // Create key based on coordinate grid for efficient lookups
-                    String key = createGridKey(location.getLatAsDouble(), location.getLonAsDouble());
+                    String key = createGridKey(lat, lon);
                     
                     // Also include place_id in key for uniqueness
                     if (location.getPlaceId() != null) {
                         key = location.getPlaceId() + "_" + key;
+                    } else {
+                        // Use coordinates as fallback if place_id is missing
+                        key = "no_id_" + key;
                     }
                     
                     String jsonValue = objectMapper.writeValueAsString(location);
@@ -76,18 +108,24 @@ public class LocationToKafkaProducer {
                     
                     producer.send(record, (metadata, exception) -> {
                         if (exception != null) {
-                            logger.error("Error sending location record", exception);
+                            logger.error("Error sending location record for place_id: {}", location.getPlaceId(), exception);
                         }
                     });
                     
                     count++;
                     if (count % 1000 == 0) {
-                        logger.info("Produced {} location records", count);
+                        logger.info("Produced {} location records ({} skipped)", count, skipped);
                         producer.flush();
                     }
                 } catch (Exception e) {
-                    logger.warn("Error processing location: {}", location.getPlaceId(), e);
+                    skipped++;
+                    logger.warn("Error processing location (place_id: {}): {}", 
+                            location != null ? location.getPlaceId() : "unknown", e.getMessage());
                 }
+            }
+            
+            if (skipped > 0) {
+                logger.warn("Skipped {} locations due to errors or missing data", skipped);
             }
             
             producer.flush();

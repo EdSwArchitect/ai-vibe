@@ -1,5 +1,6 @@
 package com.citibike.kstreams.transformer;
 
+import com.citibike.kstreams.metrics.MetricsService;
 import com.citibike.kstreams.model.CitibikeRide;
 import com.citibike.kstreams.model.Location;
 import com.citibike.kstreams.model.RideWithLocation;
@@ -24,10 +25,12 @@ public class LocationLookupTransformer implements Transformer<String, String, Ke
     private KeyValueStore<String, String> locationStore;
     private final ObjectMapper objectMapper;
     private final String storeName;
+    private final MetricsService metricsService;
 
     public LocationLookupTransformer(String storeName) {
         this.storeName = storeName;
         this.objectMapper = new ObjectMapper();
+        this.metricsService = MetricsService.getInstance();
     }
 
     @Override
@@ -38,15 +41,33 @@ public class LocationLookupTransformer implements Transformer<String, String, Ke
 
     @Override
     public KeyValue<String, String> transform(String key, String value) {
+        metricsService.incrementRidesProcessed();
         try {
             // Deserialize CitibikeRide from JSON
             CitibikeRide ride = objectMapper.readValue(value, CitibikeRide.class);
+            metricsService.incrementRidesParsed();
             
             // Lookup start location
+            var startTimer = metricsService.startLookupTimer();
+            metricsService.incrementLookups();
             Location startLocation = findClosestLocation(ride.getStartLat(), ride.getStartLng());
+            metricsService.recordLookupDuration(startTimer);
+            if (startLocation != null) {
+                metricsService.incrementLookupsSuccessful();
+            } else {
+                metricsService.incrementLookupsFailed();
+            }
             
             // Lookup end location
+            var endTimer = metricsService.startLookupTimer();
+            metricsService.incrementLookups();
             Location endLocation = findClosestLocation(ride.getEndLat(), ride.getEndLng());
+            metricsService.recordLookupDuration(endTimer);
+            if (endLocation != null) {
+                metricsService.incrementLookupsSuccessful();
+            } else {
+                metricsService.incrementLookupsFailed();
+            }
             
             // Create enriched object
             RideWithLocation rideWithLocation = new RideWithLocation(
@@ -57,6 +78,7 @@ public class LocationLookupTransformer implements Transformer<String, String, Ke
             
             return KeyValue.pair(key, outputValue);
         } catch (Exception e) {
+            metricsService.incrementRidesParseFailed();
             logger.error("Error processing ride: {}", value, e);
             return null; // Filter out errors
         }

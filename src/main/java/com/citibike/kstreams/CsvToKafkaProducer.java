@@ -1,9 +1,12 @@
 package com.citibike.kstreams;
 
+import com.citibike.kstreams.metrics.MetricsService;
+import com.citibike.kstreams.metrics.MetricsServer;
 import com.citibike.kstreams.model.CitibikeRide;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -14,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import com.opencsv.exceptions.CsvValidationException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 public class CsvToKafkaProducer {
@@ -35,6 +39,11 @@ public class CsvToKafkaProducer {
     public void produce(String csvFilePath) throws IOException, CsvValidationException {
         logger.info("Reading CSV file: {}", csvFilePath);
         
+        // Initialize metrics
+        MetricsService metricsService = MetricsService.getInstance();
+        MetricsServer metricsServer = new MetricsServer(metricsService);
+        metricsServer.start();
+        
         // Configure Kafka Producer
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
@@ -48,8 +57,10 @@ public class CsvToKafkaProducer {
 
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props, 
                 new StringSerializer(), new StringSerializer());
-             FileReader fileReader = new FileReader(csvFilePath);
-             CSVReader csvReader = new CSVReader(fileReader)) {
+             FileReader fileReader = new FileReader(csvFilePath, StandardCharsets.UTF_8);
+             CSVReader csvReader = new CSVReaderBuilder(fileReader)
+                     .withSkipLines(0)  // We'll skip header manually
+                     .build()) {
 
             // Skip header
             try {
@@ -60,73 +71,124 @@ public class CsvToKafkaProducer {
 
             String[] line;
             int count = 0;
+            int skipped = 0;
             
             try {
                 while ((line = csvReader.readNext()) != null) {
-                if (line.length < 13) {
-                    continue;
-                }
-
-                try {
-                    CitibikeRide ride = parseCsvLine(line);
-                    String jsonValue = objectMapper.writeValueAsString(ride);
-                    
-                    ProducerRecord<String, String> record = new ProducerRecord<>(
-                            TOPIC, ride.getRideId(), jsonValue);
-                    
-                    producer.send(record, (metadata, exception) -> {
-                        if (exception != null) {
-                            logger.error("Error sending record", exception);
-                        }
-                    });
-                    
-                    count++;
-                    if (count % 1000 == 0) {
-                        logger.info("Produced {} records", count);
-                        producer.flush();
+                    // Skip empty lines or lines with insufficient columns
+                    if (line == null || line.length < 13) {
+                        skipped++;
+                        continue;
                     }
-                } catch (Exception e) {
-                    logger.warn("Error parsing line: {}", String.join(",", line), e);
-                }
+
+                    try {
+                        CitibikeRide ride = parseCsvLine(line);
+                        metricsService.incrementRidesProcessed();
+                        
+                        // Skip rides without valid ride_id
+                        if (ride.getRideId() == null || ride.getRideId().trim().isEmpty()) {
+                            skipped++;
+                            metricsService.incrementRidesParseFailed();
+                            logger.debug("Skipping ride with missing ride_id");
+                            continue;
+                        }
+                        
+                        metricsService.incrementRidesParsed();
+                        String jsonValue = objectMapper.writeValueAsString(ride);
+                        
+                        ProducerRecord<String, String> record = new ProducerRecord<>(
+                                TOPIC, ride.getRideId(), jsonValue);
+                        
+                        producer.send(record, (metadata, exception) -> {
+                            if (exception != null) {
+                                logger.error("Error sending record for ride_id: {}", ride.getRideId(), exception);
+                            }
+                        });
+                        
+                        count++;
+                        metricsService.setRidesCount(count);
+                        if (count % 1000 == 0) {
+                            logger.info("Produced {} records ({} skipped)", count, skipped);
+                            producer.flush();
+                        }
+                    } catch (Exception e) {
+                        skipped++;
+                        metricsService.incrementRidesParseFailed();
+                        logger.warn("Error parsing line {}: {}", count + skipped, e.getMessage());
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Failed line content: {}", String.join(",", line));
+                        }
+                    }
                 }
             } catch (CsvValidationException e) {
                 logger.error("Error reading CSV", e);
             }
             
+            if (skipped > 0) {
+                logger.warn("Skipped {} records due to parsing errors or missing data", skipped);
+            }
+            
             producer.flush();
-            logger.info("Finished producing {} records to topic: {}", count, TOPIC);
+            logger.info("Finished producing {} records to topic: {} ({} skipped)", count, TOPIC, skipped);
+            logger.info("Metrics server running at http://localhost:8081/metrics");
         }
     }
 
     private CitibikeRide parseCsvLine(String[] line) {
         CitibikeRide ride = new CitibikeRide();
-        ride.setRideId(removeQuotes(line[0]));
-        ride.setRideableType(removeQuotes(line[1]));
-        ride.setStartedAt(removeQuotes(line[2]));
-        ride.setEndedAt(removeQuotes(line[3]));
-        ride.setStartStationName(removeQuotes(line[4]));
-        ride.setStartStationId(removeQuotes(line[5]));
-        ride.setEndStationName(removeQuotes(line[6]));
-        ride.setEndStationId(removeQuotes(line[7]));
         
-        try {
-            ride.setStartLat(Double.parseDouble(removeQuotes(line[8])));
-            ride.setStartLng(Double.parseDouble(removeQuotes(line[9])));
-            ride.setEndLat(Double.parseDouble(removeQuotes(line[10])));
-            ride.setEndLng(Double.parseDouble(removeQuotes(line[11])));
-        } catch (NumberFormatException e) {
-            logger.warn("Error parsing coordinates", e);
-        }
+        // Parse basic fields
+        ride.setRideId(cleanField(line, 0));
+        ride.setRideableType(cleanField(line, 1));
+        ride.setStartedAt(cleanField(line, 2));
+        ride.setEndedAt(cleanField(line, 3));
+        ride.setStartStationName(cleanField(line, 4));
+        ride.setStartStationId(cleanField(line, 5));
+        ride.setEndStationName(cleanField(line, 6));
+        ride.setEndStationId(cleanField(line, 7));
         
-        ride.setMemberCasual(removeQuotes(line[12]));
+        // Parse coordinates with robust error handling
+        ride.setStartLat(parseDouble(cleanField(line, 8)));
+        ride.setStartLng(parseDouble(cleanField(line, 9)));
+        ride.setEndLat(parseDouble(cleanField(line, 10)));
+        ride.setEndLng(parseDouble(cleanField(line, 11)));
+        
+        ride.setMemberCasual(cleanField(line, 12));
         return ride;
     }
 
-    private String removeQuotes(String str) {
-        if (str == null) {
+    /**
+     * Clean and extract field value from CSV line
+     */
+    private String cleanField(String[] line, int index) {
+        if (line == null || index < 0 || index >= line.length) {
             return null;
         }
-        return str.replaceAll("^\"|\"$", "");
+        String value = line[index];
+        if (value == null) {
+            return null;
+        }
+        // Remove quotes and trim whitespace
+        value = value.replaceAll("^\"|\"$", "").trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * Parse double value with robust error handling
+     */
+    private Double parseDouble(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Remove any whitespace and parse
+            String cleaned = value.trim();
+            return Double.parseDouble(cleaned);
+        } catch (NumberFormatException e) {
+            logger.debug("Failed to parse double value: '{}'", value);
+            return null;
+        }
     }
 }
 

@@ -29,8 +29,37 @@ public class LocationLookupService {
 
     private List<Location> loadLocations(String filePath) throws IOException {
         File file = new File(filePath);
-        Location[] locationArray = objectMapper.readValue(file, Location[].class);
-        return List.of(locationArray);
+        
+        // Configure ObjectMapper for lenient parsing
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false);
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true);
+        
+        Location[] locationArray;
+        try {
+            locationArray = objectMapper.readValue(file, Location[].class);
+        } catch (Exception e) {
+            logger.error("Error parsing locations JSON file: {}", filePath, e);
+            throw new IOException("Failed to parse locations JSON file", e);
+        }
+        
+        // Filter out locations with invalid coordinates
+        List<Location> validLocations = new ArrayList<>();
+        int skipped = 0;
+        for (Location location : locationArray) {
+            if (location.getLatAsDouble() != null && location.getLonAsDouble() != null) {
+                validLocations.add(location);
+            } else {
+                skipped++;
+                logger.debug("Skipping location {} - missing or invalid coordinates", location.getPlaceId());
+            }
+        }
+        
+        if (skipped > 0) {
+            logger.warn("Skipped {} locations due to missing or invalid coordinates", skipped);
+        }
+        
+        return validLocations;
     }
 
     /**

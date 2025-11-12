@@ -1,5 +1,7 @@
 package com.citibike.kstreams;
 
+import com.citibike.kstreams.metrics.MetricsService;
+import com.citibike.kstreams.metrics.MetricsServer;
 import com.citibike.kstreams.model.CitibikeRide;
 import com.citibike.kstreams.model.Location;
 import com.citibike.kstreams.model.RideWithLocation;
@@ -41,8 +43,16 @@ public class CitibikeKStreamsApp {
         logger.info("Starting Citibike Kafka Streams Application");
         logger.info("Loading locations from: {}", locationsFilePath);
 
+        // Initialize metrics
+        MetricsService metricsService = MetricsService.getInstance();
+        MetricsServer metricsServer = new MetricsServer(metricsService);
+        metricsServer.start();
+
         // Load location lookup service
         LocationLookupService locationService = new LocationLookupService(locationsFilePath);
+        
+        // Set locations count metric
+        metricsService.setLocationsCount(locationService.getAllLocations().size());
 
         // Configure Kafka Streams
         Properties props = new Properties();
@@ -59,19 +69,39 @@ public class CitibikeKStreamsApp {
         // Build the stream topology
         StreamsBuilder builder = new StreamsBuilder();
 
+        final MetricsService metrics = metricsService;
+        
         builder.stream(INPUT_TOPIC, Consumed.with(Serdes.String(), Serdes.String()))
                 .mapValues(value -> {
+                    metrics.incrementRidesProcessed();
                     try {
                         // Deserialize CitibikeRide from JSON
                         CitibikeRide ride = objectMapper.readValue(value, CitibikeRide.class);
+                        metrics.incrementRidesParsed();
                         
                         // Lookup start location
+                        var startTimer = metrics.startLookupTimer();
+                        metrics.incrementLookups();
                         Location startLocation = locationService.findClosestLocation(
                                 ride.getStartLat(), ride.getStartLng());
+                        metrics.recordLookupDuration(startTimer);
+                        if (startLocation != null) {
+                            metrics.incrementLookupsSuccessful();
+                        } else {
+                            metrics.incrementLookupsFailed();
+                        }
                         
                         // Lookup end location
+                        var endTimer = metrics.startLookupTimer();
+                        metrics.incrementLookups();
                         Location endLocation = locationService.findClosestLocation(
                                 ride.getEndLat(), ride.getEndLng());
+                        metrics.recordLookupDuration(endTimer);
+                        if (endLocation != null) {
+                            metrics.incrementLookupsSuccessful();
+                        } else {
+                            metrics.incrementLookupsFailed();
+                        }
                         
                         // Create enriched object
                         RideWithLocation rideWithLocation = new RideWithLocation(
@@ -80,6 +110,7 @@ public class CitibikeKStreamsApp {
                         // Serialize to JSON
                         return objectMapper.writeValueAsString(rideWithLocation);
                     } catch (Exception e) {
+                        metrics.incrementRidesParseFailed();
                         logger.error("Error processing ride: {}", value, e);
                         return null;
                     }
@@ -93,6 +124,7 @@ public class CitibikeKStreamsApp {
         // Add shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down Kafka Streams application");
+            metricsServer.stop();
             streams.close();
         }));
 

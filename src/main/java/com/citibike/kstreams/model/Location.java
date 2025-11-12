@@ -1,7 +1,9 @@
 package com.citibike.kstreams.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Location {
     @JsonProperty("place_id")
     private Long placeId;
@@ -101,13 +103,28 @@ public class Location {
     }
 
     public Double getLatAsDouble() {
-        return lat != null ? Double.parseDouble(lat) : null;
+        if (lat == null || lat.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(lat);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     public Double getLonAsDouble() {
-        return lon != null ? Double.parseDouble(lon) : null;
+        if (lon == null || lon.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(lon);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Address {
         private String amenity;
         @JsonProperty("house_number")
@@ -124,6 +141,8 @@ public class Location {
         private String country;
         @JsonProperty("country_code")
         private String countryCode;
+        private String building;
+        private String tourism;
 
         public Address() {
         }
@@ -222,6 +241,22 @@ public class Location {
 
         public void setCountryCode(String countryCode) {
             this.countryCode = countryCode;
+        }
+
+        public String getBuilding() {
+            return building;
+        }
+
+        public void setBuilding(String building) {
+            this.building = building;
+        }
+
+        public String getTourism() {
+            return tourism;
+        }
+
+        public void setTourism(String tourism) {
+            this.tourism = tourism;
         }
     }
 }

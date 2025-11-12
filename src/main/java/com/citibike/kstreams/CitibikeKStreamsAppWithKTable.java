@@ -1,5 +1,7 @@
 package com.citibike.kstreams;
 
+import com.citibike.kstreams.metrics.MetricsService;
+import com.citibike.kstreams.metrics.MetricsServer;
 import com.citibike.kstreams.transformer.LocationLookupTransformer;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
@@ -37,6 +39,15 @@ public class CitibikeKStreamsAppWithKTable {
     public void run() {
         logger.info("Starting Citibike Kafka Streams Application with KTable lookup");
         logger.info("Loading locations from topic: {}", LOCATIONS_TOPIC);
+
+        // Initialize metrics
+        MetricsService metricsService = MetricsService.getInstance();
+        MetricsServer metricsServer = new MetricsServer(metricsService);
+        try {
+            metricsServer.start();
+        } catch (Exception e) {
+            logger.error("Failed to start metrics server", e);
+        }
 
         // Configure Kafka Streams
         Properties props = new Properties();
@@ -78,6 +89,7 @@ public class CitibikeKStreamsAppWithKTable {
         // Add shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down Kafka Streams application");
+            metricsServer.stop();
             streams.close();
         }));
 

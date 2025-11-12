@@ -285,6 +285,54 @@ Kafka broker is configured to connect to `localhost:9092` by default. You can mo
 
 The application uses a distance-based matching algorithm (Haversine formula) to find the closest location within a threshold of approximately 1km from the ride coordinates.
 
+## Metrics and Monitoring
+
+The application exposes Prometheus metrics on port 8081 at `/metrics` endpoint. Metrics are automatically collected by Prometheus and visualized in Grafana.
+
+### Available Metrics
+
+- `citibike_locations_count` - Current number of locations loaded
+- `citibike_rides_count` - Current number of rides
+- `citibike_rides_processed_total` - Total number of rides processed
+- `citibike_rides_parsed_total` - Total number of rides successfully parsed
+- `citibike_rides_parse_failed_total` - Total number of rides that failed to parse
+- `citibike_location_lookups_total` - Total number of location lookups attempted
+- `citibike_location_lookups_successful_total` - Total number of successful location lookups
+- `citibike_location_lookups_failed_total` - Total number of failed location lookups
+- `citibike_location_lookup_duration_seconds` - Duration of location lookups (histogram)
+
+### Accessing Metrics
+
+1. **Prometheus**: http://localhost:9090
+   - Query metrics using PromQL
+   - View targets to verify metrics collection
+
+2. **Grafana**: http://localhost:3000
+   - Default credentials: `admin` / `admin`
+   - Pre-configured dashboard: "Citibike Kafka Streams Metrics"
+   - Dashboard includes:
+     - Locations and rides counts
+     - Lookup rates (per second)
+     - Success vs failure rates
+     - Parse failure rates
+     - Lookup duration percentiles
+     - Processing rates
+
+### Starting Monitoring Stack
+
+```bash
+# Start all services including Prometheus and Grafana
+docker-compose up -d
+
+# Verify services are running
+docker-compose ps
+
+# Access Grafana
+open http://localhost:3000
+```
+
+The Grafana dashboard will automatically load when you access the web interface.
+
 ## License
 
 This project is for educational purposes.
